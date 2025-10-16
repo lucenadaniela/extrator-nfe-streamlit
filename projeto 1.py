@@ -353,15 +353,12 @@ def geocode_city(city: str) -> tuple | None:
 
 # =================== MAPA (FOLIUM) ===================
 def _color_for(z):
-    if z == "Capital": return "red"
-    if z == "Metropolitana": return "blue"
+    if z == "Capital":
+        return "red"
+    if z == "Metropolitana":
+        return "blue"
     return "gray"
 
-def build_map_folium(df_destinos: pd.DataFrame):
-    def _color_for(z):
-    if z == "Capital": return "red"
-    if z == "Metropolitana": return "blue"
-    return "gray"
 
 def build_map_folium(df_destinos: pd.DataFrame):
     """Plota destinos (municípios de PE) com Folium; tamanho do ponto ~ nº de entregas."""
@@ -373,15 +370,15 @@ def build_map_folium(df_destinos: pd.DataFrame):
 
     lats, lons = [], []
 
-    # Funçãozinha pra dimensionar o raio (evita bolhas gigantes)
     def radius_for(n):
         base = 6
-        extra = min(n, 14)  # corta no 14 pra não explodir
+        extra = min(n, 14)
         return base + extra
 
     for _, row in df_destinos.iterrows():
         lat, lon = row["lat"], row["lon"]
-        lats.append(lat); lons.append(lon)
+        lats.append(lat)
+        lons.append(lon)
         entregas = int(row.get("entregas", 1))
 
         folium.CircleMarker(
@@ -389,14 +386,16 @@ def build_map_folium(df_destinos: pd.DataFrame):
             radius=radius_for(entregas),
             weight=2,
             color=_color_for(row["ZONA"]),
-            fill=True, fill_color=_color_for(row["ZONA"]), fill_opacity=0.9,
+            fill=True,
+            fill_color=_color_for(row["ZONA"]),
+            fill_opacity=0.9,
             popup=folium.Popup(
                 html=(
                     f"<b>{row['municipio']}</b>"
                     f"<br/>Zona: {row['ZONA']}"
                     f"<br/>Entregas: {entregas}"
                 ),
-                max_width=260
+                max_width=260,
             ),
             tooltip=f"{row['municipio']} • {row['ZONA']} • Entregas: {entregas}",
         ).add_to(m)
@@ -420,6 +419,7 @@ def build_map_folium(df_destinos: pd.DataFrame):
     """
     m.get_root().html.add_child(folium.Element(legend_html))
     st_folium(m, width=None, height=PLOT_HEIGHT)
+
 
 
 # =================== UI ===================
