@@ -1,6 +1,4 @@
-# -*- coding: utf-8 -*-
-# Streamlit — Upload TXT -> Extração -> Download Excel (IBGE) + Mapa Folium (OSM)
-# Agora com coluna adicional: QUANTIDADE (padrões "2 VOLUMES" ou logo após "QUANTIDADE")
+
 
 import io
 import os
