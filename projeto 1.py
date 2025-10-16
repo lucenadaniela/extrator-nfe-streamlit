@@ -458,7 +458,7 @@ if uploaded is not None:
                   f"<div class='value'>{len(df)}</div></div>", unsafe_allow_html=True)
     col2.markdown("<div class='kpi'><div class='label'>Municípios distintos</div>"
                   f"<div class='value'>{df['MUNICÍPIO'].nunique()}</div></div>", unsafe_allow_html=True)
-    col3.markdown("<div class='kpi'><div class='label'>Capital/Metro/Outros</div>"
+    col3.markdown("<div class='kpi'><div class='label'>Capital/Metropolitana/Outros</div>"
                   f"<div class='value'>{capital}/{metro}/{outros}</div></div>", unsafe_allow_html=True)
     col4.markdown("<div class='kpi'><div class='label'>Valor total de frete (R$)</div>"
                   f"<div class='value'>{total_frete:,.2f}</div></div>", unsafe_allow_html=True)
