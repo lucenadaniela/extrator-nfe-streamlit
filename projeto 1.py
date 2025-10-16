@@ -358,6 +358,13 @@ def _color_for(z):
     return "gray"
 
 def build_map_folium(df_destinos: pd.DataFrame):
+    def _color_for(z):
+    if z == "Capital": return "red"
+    if z == "Metropolitana": return "blue"
+    return "gray"
+
+def build_map_folium(df_destinos: pd.DataFrame):
+    """Plota destinos (municípios de PE) com Folium; tamanho do ponto ~ nº de entregas."""
     if df_destinos.empty:
         st.info("Sem destinos válidos para plotar no mapa.")
         return
@@ -365,17 +372,33 @@ def build_map_folium(df_destinos: pd.DataFrame):
     m = folium.Map(location=[-8.38, -37.86], zoom_start=6, tiles="OpenStreetMap")
 
     lats, lons = [], []
+
+    # Funçãozinha pra dimensionar o raio (evita bolhas gigantes)
+    def radius_for(n):
+        base = 6
+        extra = min(n, 14)  # corta no 14 pra não explodir
+        return base + extra
+
     for _, row in df_destinos.iterrows():
         lat, lon = row["lat"], row["lon"]
         lats.append(lat); lons.append(lon)
+        entregas = int(row.get("entregas", 1))
 
         folium.CircleMarker(
             location=[lat, lon],
-            radius=7, weight=2,
+            radius=radius_for(entregas),
+            weight=2,
             color=_color_for(row["ZONA"]),
             fill=True, fill_color=_color_for(row["ZONA"]), fill_opacity=0.9,
-            popup=folium.Popup(html=f"<b>{row['municipio']}</b><br/>Zona: {row['ZONA']}", max_width=260),
-            tooltip=f"{row['municipio']} • {row['ZONA']}",
+            popup=folium.Popup(
+                html=(
+                    f"<b>{row['municipio']}</b>"
+                    f"<br/>Zona: {row['ZONA']}"
+                    f"<br/>Entregas: {entregas}"
+                ),
+                max_width=260
+            ),
+            tooltip=f"{row['municipio']} • {row['ZONA']} • Entregas: {entregas}",
         ).add_to(m)
 
     if lats and lons:
@@ -390,10 +413,14 @@ def build_map_folium(df_destinos: pd.DataFrame):
       <div><span style="background:red; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Capital</div>
       <div><span style="background:blue; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Metropolitana</div>
       <div><span style="background:gray; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Outros</div>
+      <div style="margin-top:6px; font-size:12px; color:#333;">
+        • O tamanho do ponto indica o nº de entregas
+      </div>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
     st_folium(m, width=None, height=PLOT_HEIGHT)
+
 
 # =================== UI ===================
 st.markdown(f"### {APP_TITLE}")
@@ -421,15 +448,20 @@ if uploaded is not None:
     excel_bytes, df = salvar_excel_bytes(registros)
 
     # KPIs
-    col1, col2, col3 = st.columns(3)
+    total_frete = float(pd.to_numeric(df["VALOR FRETE"], errors="coerce").fillna(0).sum())
+    capital = int((df["ZONA"] == "Capital").sum())
+    metro   = int((df["ZONA"] == "Metropolitana").sum())
+    outros  = int((df["ZONA"] == "Outros").sum())
+    
+    col1, col2, col3, col4 = st.columns(4)
     col1.markdown("<div class='kpi'><div class='label'>Notas extraídas</div>"
                   f"<div class='value'>{len(df)}</div></div>", unsafe_allow_html=True)
     col2.markdown("<div class='kpi'><div class='label'>Municípios distintos</div>"
                   f"<div class='value'>{df['MUNICÍPIO'].nunique()}</div></div>", unsafe_allow_html=True)
-    col3.markdown("<div class='kpi'><div class='label'>Capital/Metropolitana/Outros</div>"
-                  f"<div class='value'>{(df['ZONA']=='Capital').sum()}/"
-                  f"{(df['ZONA']=='Metropolitana').sum()}/"
-                  f"{(df['ZONA']=='Outros').sum()}</div></div>", unsafe_allow_html=True)
+    col3.markdown("<div class='kpi'><div class='label'>Capital/Metro/Outros</div>"
+                  f"<div class='value'>{capital}/{metro}/{outros}</div></div>", unsafe_allow_html=True)
+    col4.markdown("<div class='kpi'><div class='label'>Valor total de frete (R$)</div>"
+                  f"<div class='value'>{total_frete:,.2f}</div></div>", unsafe_allow_html=True)
 
     st.write("")
     st.download_button(
@@ -460,7 +492,8 @@ if uploaded is not None:
     if "geocache" not in st.session_state:
         st.session_state["geocache"] = load_geocache()
 
-    municipios = (
+    # Contagem de entregas por município (sanitizado)
+    mun_series = (
         df["MUNICÍPIO"]
         .dropna()
         .astype(str)
@@ -468,22 +501,31 @@ if uploaded is not None:
         .str.strip()
         .replace("", pd.NA)
         .dropna()
-        .unique()
-        .tolist()
     )
-
-    pontos, nao_plotados = [], []
+    
+    entregas_por_mun = mun_series.value_counts()          # Series: mun -> contagem
+    municipios = entregas_por_mun.index.tolist()
+    
+    pontos = []
+    nao_plotados = []
     for mun in municipios:
         z, _ = classificar_zona_ibge(mun)
         latlon = geocode_city(mun)
         if latlon:
             lat, lon = latlon
-            pontos.append({"municipio": f"{mun}, PE", "lat": lat, "lon": lon, "ZONA": z})
+            pontos.append({
+                "municipio": f"{mun}, PE",
+                "lat": lat,
+                "lon": lon,
+                "ZONA": z,
+                "entregas": int(entregas_por_mun[mun]),
+            })
         else:
             nao_plotados.append(mun)
 
-    df_map = pd.DataFrame(pontos)
-    st.caption(f"🗺️ Plotados: {len(df_map)} | Municípios distintos no TXT: {len(municipios)}")
+
+        df_map = pd.DataFrame(pontos)
+    st.caption(f"🗺️ Plotados: {len(df_map)} | Municípios distintos no TXT: {len(entregas_por_mun)}")
     build_map_folium(df_map)
 
     if nao_plotados:
