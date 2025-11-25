@@ -142,6 +142,7 @@ def extrair_notas_de_texto(texto: str):
                 "TELEFONE 2": None,
                 "VENDEDOR": None,
                 "INTEGRACAO": None,
+                "CUBAGEM": None,
             }
             i += 1
             continue
@@ -235,7 +236,7 @@ def extrair_notas_de_texto(texto: str):
                     if valor:
                         atual["TELEFONE 2"] = find_phone_in_text(valor)
 
-            # ===== VENDEDOR / INTEGRACAO (informações complementares) =====
+            # ===== VENDEDOR / INTEGRACAO =====
             if "#VENDEDOR" in linha.upper() and not atual.get("VENDEDOR"):
                 m_vend = re.search(
                     r'#VENDEDOR\s*:\s*(.*?)\s+NOSSO\s+PEDIDO',
@@ -246,10 +247,8 @@ def extrair_notas_de_texto(texto: str):
                     atual["VENDEDOR"] = m_vend.group(1).strip(" :;-")
 
             if "INTEGRACAO" in linha.upper() and not atual.get("INTEGRACAO"):
-                # Junta linha atual com próxima não vazia (caso número esteja embaixo)
                 prox = prox_nao_vazia(linhas, i + 1, max_look=3)
                 bloco = linha + " " + (prox or "")
-
                 m_int = re.search(
                     r'Integracao\s*:\s*(.+?)(?:-+\s*EntregaID\b|;|\Z)',
                     bloco,
@@ -258,7 +257,21 @@ def extrair_notas_de_texto(texto: str):
                 if m_int:
                     atual["INTEGRACAO"] = m_int.group(1).strip(" :;-")
 
-        # MUITO IMPORTANTE: avançar a linha
+            # ===== CUBAGEM =====
+            if "CUBAGEM" in linha.upper() and not atual.get("CUBAGEM"):
+                prox = prox_nao_vazia(linhas, i + 1, max_look=2)
+                bloco = linha + " " + (prox or "")
+                # Ex.: CUBAGEM: 1.37;   ou   CUBAGEM - 1.37;
+                m_cub = re.search(
+                    r'CUBAGEM\s*[:\-]\s*([^;]+)',
+                    bloco,
+                    flags=re.IGNORECASE
+                )
+                if m_cub:
+                    valor_cub = m_cub.group(1).strip()
+                    atual["CUBAGEM"] = valor_cub
+
+        # avança a linha
         i += 1
 
     if atual:
@@ -286,6 +299,7 @@ def salvar_excel_bytes(registros) -> tuple[bytes, pd.DataFrame]:
                 "NOME / RAZÃO SOCIAL", "ENDEREÇO",
                 "BAIRRO / DISTRITO", "MUNICÍPIO", "CEP",
                 "VALOR TOTAL DA NOTA",
+                "CUBAGEM",
             ]:
                 if not str(combined.get(campo, "")).strip():
                     combined[campo] = row.get(campo)
@@ -309,6 +323,7 @@ def salvar_excel_bytes(registros) -> tuple[bytes, pd.DataFrame]:
         "Nº", "NOME / RAZÃO SOCIAL", "ENDEREÇO",
         "BAIRRO / DISTRITO", "MUNICÍPIO", "CEP",
         "VALOR TOTAL DA NOTA", "QUANTIDADE", "PESO BRUTO",
+        "CUBAGEM",
         "TELEFONE / FAX", "TELEFONE 2",
         "VENDEDOR", "INTEGRACAO",
         "ZONA", "VALOR FRETE",
@@ -338,7 +353,7 @@ def save_geocache(cache: dict):
     except Exception:
         pass
 
-# ===== Fallback de coordenadas (RMR + variações) =====
+# ===== Fallback de coordenadas =====
 COORDS_FALLBACK_RAW = {
     "RECIFE, PE": (-8.0476, -34.8770),
     "OLINDA, PE": (-8.0101, -34.8545),
@@ -431,7 +446,10 @@ def build_map_folium(df_destinos: pd.DataFrame):
             fill=True,
             fill_color=_color_for(row["ZONA"]),
             fill_opacity=0.9,
-            popup=folium.Popup(html=f"<b>{row['municipio']}</b><br/>Zona: {row['ZONA']}", max_width=260),
+            popup=folium.Popup(
+                html=f"<b>{row['municipio']}</b><br/>Zona: {row['ZONA']}",
+                max_width=260
+            ),
             tooltip=f"{row['municipio']} • {row['ZONA']}",
         ).add_to(m)
 
@@ -556,4 +574,5 @@ if uploaded is not None:
         st.caption("⚠️ Municípios não plotados (sem coordenadas/OSM): " + ", ".join(sorted(set(nao_plotados))))
 else:
     st.info("Faça o upload do arquivo TXT para iniciar a extração.")
+
 
