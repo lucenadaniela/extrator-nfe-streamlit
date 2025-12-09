@@ -37,7 +37,7 @@ VALOR_FRETE_RECIFE_CAPITAL = 165.00
 VALOR_FRETE_RECIFE_METRO   = 170.50
 
 # ----------------- CONFIG AL (MACEIÓ) -----------------
-# Municípios da Região Metropolitana de Maceió segundo legislação estadual / IBGE
+# Municípios da Região Metropolitana de Maceió segundo IBGE/legislação estadual
 CAPITAL_IBGE_AL = {"MACEIO"}
 RMM_MACEIO_IBGE = {
     "ATALAIA",
@@ -95,6 +95,20 @@ def sanitize_municipio_name(raw: str) -> str:
     s = re.sub(r"\b(PE|PERNAMBUCO|AL|ALAGOAS)\b", "", s, flags=re.IGNORECASE)
     s = re.sub(r"\s{2,}", " ", s).strip()
     return s
+
+def detectar_origem(texto: str) -> str:
+    """
+    Detecta automaticamente a cidade de origem pelo conteúdo do TXT.
+    Se encontrar MACEIÓ/MACEIO relacionado a AL/ALAGOAS, considera Maceió (AL).
+    Caso contrário, assume Recife (PE).
+    """
+    up = strip_accents_upper(texto[:8000])  # pega só o começo do arquivo
+    tem_maceio = "MACEIO" in up
+    tem_al = (" ALAGOAS" in up) or (" AL " in up) or ("-AL" in up) or ("/AL" in up)
+
+    if tem_maceio and tem_al:
+        return "Maceió (AL)"
+    return "Recife (PE)"
 
 def classificar_zona_ibge(municipio: str, origem: str):
     """
@@ -538,17 +552,17 @@ with left:
     st.markdown("#### 1) Envie o arquivo `.txt`")
     uploaded = st.file_uploader("Selecione o `texto_extraido.txt`", type=["txt"])
 with right:
-    origem = st.selectbox(
-        "Cidade de origem",
-        options=["Recife (PE)", "Maceió (AL)"],
-        index=0,
-        help="Usado para aplicar a tabela de frete (PE ou AL) e classificar Capital / Metropolitana / Interior."
-    )
+    st.empty()
 
 st.write("")
 
 if uploaded is not None:
     texto = uploaded.read().decode("utf-8", errors="ignore")
+
+    # Origem detectada automaticamente
+    origem = detectar_origem(texto)
+    st.caption(f"🏁 Origem detectada automaticamente: **{origem}**")
+
     with st.spinner("Extraindo dados do TXT..."):
         registros = extrair_notas_de_texto(texto)
 
