@@ -19,21 +19,45 @@ from streamlit_folium import st_folium
 
 # =================== CONFIG ===================
 APP_TITLE = "📄 Extrator de NF-e → Excel"
-SUBTITLE  = "Classificação IBGE (Capital/Metropolitana) + Mapa dos Destinos em PE"
-GEOCACHE_FILE = "geocache_pe.json"
+SUBTITLE  = "Classificação IBGE (Capital/Metropolitana) + Mapa dos Destinos"
+
+GEOCACHE_FILE = "geocache_destinos.json"
 PLOT_HEIGHT = 520
 
-# Base IBGE (RMR/PE) — normalizada
-CAPITAL_IBGE = {"RECIFE"}
-RMR_IBGE = {
+# ----------------- CONFIG PE (RECIFE) -----------------
+CAPITAL_IBGE_PE = {"RECIFE"}
+RMR_IBGE_PE = {
     "RECIFE", "OLINDA", "JABOATAO DOS GUARARAPES", "PAULISTA",
     "CABO DE SANTO AGOSTINHO", "IPOJUCA", "CAMARAGIBE",
     "SAO LOURENCO DA MATA", "ABREU E LIMA", "IGARASSU",
     "ITAPISSUMA", "ARACOIABA", "MORENO", "ILHA DE ITAMARACA",
 }
 
-VALOR_FRETE_CAPITAL = 165.00
-VALOR_FRETE_METRO   = 170.50
+VALOR_FRETE_RECIFE_CAPITAL = 165.00
+VALOR_FRETE_RECIFE_METRO   = 170.50
+
+# ----------------- CONFIG AL (MACEIÓ) -----------------
+# Municípios da Região Metropolitana de Maceió segundo legislação estadual / IBGE
+CAPITAL_IBGE_AL = {"MACEIO"}
+RMM_MACEIO_IBGE = {
+    "ATALAIA",
+    "BARRA DE SANTO ANTONIO",
+    "BARRA DE SAO MIGUEL",
+    "COQUEIRO SECO",
+    "MACEIO",
+    "MARECHAL DEODORO",
+    "MESSIAS",
+    "MURICI",
+    "PARIPUEIRA",
+    "PILAR",
+    "RIO LARGO",
+    "SANTA LUZIA DO NORTE",
+    "SATUBA",
+}
+
+# Tabela de frete quando a ORIGEM é Maceió
+VALOR_FRETE_MACEIO_CAPITAL_METRO = 114.00   # Capital + Região Metropolitana
+VALOR_FRETE_MACEIO_INTERIOR      = 199.50   # Interior de Alagoas
 
 # Regex auxiliares
 NUM_BR = r'(\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:,\d+)?)'
@@ -68,16 +92,40 @@ def sanitize_municipio_name(raw: str) -> str:
         return ""
     s = str(raw).strip()
     s = s.split(",")[0]
-    s = re.sub(r"\b(PE|PERNAMBUCO)\b", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\b(PE|PERNAMBUCO|AL|ALAGOAS)\b", "", s, flags=re.IGNORECASE)
     s = re.sub(r"\s{2,}", " ", s).strip()
     return s
 
-def classificar_zona_ibge(municipio: str):
+def classificar_zona_ibge(municipio: str, origem: str):
+    """
+    Classifica município como Capital / Metropolitana / Outros / Interior,
+    e já retorna o valor de frete de acordo com a cidade de origem.
+    """
     key = strip_accents_upper(municipio)
-    if key in CAPITAL_IBGE:
-        return "Capital", VALOR_FRETE_CAPITAL
-    if key in RMR_IBGE:
-        return "Metropolitana", VALOR_FRETE_METRO
+    origem_norm = strip_accents_upper(origem)
+
+    # --- Tabela Recife / PE ---
+    if "RECIFE" in origem_norm:
+        if key in CAPITAL_IBGE_PE:
+            return "Capital", VALOR_FRETE_RECIFE_CAPITAL
+        if key in RMR_IBGE_PE:
+            return "Metropolitana", VALOR_FRETE_RECIFE_METRO
+        return "Outros", None
+
+    # --- Tabela Maceió / AL ---
+    if "MACEIO" in origem_norm:
+        if key in CAPITAL_IBGE_AL:
+            return "Capital", VALOR_FRETE_MACEIO_CAPITAL_METRO
+        if key in RMM_MACEIO_IBGE:
+            return "Metropolitana", VALOR_FRETE_MACEIO_CAPITAL_METRO
+        # Qualquer município de AL fora da RMM entra como Interior
+        return "Interior", VALOR_FRETE_MACEIO_INTERIOR
+
+    # Fallback: tratar como Recife/PE
+    if key in CAPITAL_IBGE_PE:
+        return "Capital", VALOR_FRETE_RECIFE_CAPITAL
+    if key in RMR_IBGE_PE:
+        return "Metropolitana", VALOR_FRETE_RECIFE_METRO
     return "Outros", None
 
 def prox_nao_vazia(linhas, j, max_look=15):
@@ -170,7 +218,7 @@ def extrair_notas_de_texto(texto: str):
             if re.fullmatch(r'MUNICÍPIO', linha, flags=re.IGNORECASE):
                 v = prox_nao_vazia(linhas, i + 1)
                 if v:
-                    v_limpo = re.split(r'\bUF\b|CEP|\bPE\b|\d{2}:\d{2}:\d{2}', v, maxsplit=1)[0].strip(" -")
+                    v_limpo = re.split(r'\bUF\b|CEP|\bPE\b|\bAL\b|\d{2}:\d{2}:\d{2}', v, maxsplit=1)[0].strip(" -")
                     atual["MUNICÍPIO"] = v_limpo or v
 
             # VALOR TOTAL DA NOTA
@@ -278,7 +326,7 @@ def extrair_notas_de_texto(texto: str):
         registros.append(atual)
     return registros
 
-def salvar_excel_bytes(registros) -> tuple[bytes, pd.DataFrame]:
+def salvar_excel_bytes(registros, origem: str) -> tuple[bytes, pd.DataFrame]:
     df = pd.DataFrame(registros)
 
     # Une linhas quebradas com mesmo Nº consecutivo
@@ -309,11 +357,11 @@ def salvar_excel_bytes(registros) -> tuple[bytes, pd.DataFrame]:
             df_clean.append(row)
     df = pd.DataFrame(df_clean).reset_index(drop=True)
 
-    # Classificação IBGE
+    # Classificação IBGE + valor de frete conforme origem
     zonas = []
     fretes = []
     for mun in df["MUNICÍPIO"].fillna(""):
-        z, f = classificar_zona_ibge(mun)
+        z, f = classificar_zona_ibge(mun, origem)
         zonas.append(z)
         fretes.append(f)
     df["ZONA"] = zonas
@@ -353,11 +401,11 @@ def save_geocache(cache: dict):
     except Exception:
         pass
 
-# ===== Fallback de coordenadas =====
+# ===== Fallback de coordenadas (PE) =====
 COORDS_FALLBACK_RAW = {
     "RECIFE, PE": (-8.0476, -34.8770),
     "OLINDA, PE": (-8.0101, -34.8545),
-    "JABOATÃO DOS GUARARAPES, PE": (-8.1120, -35.0140),
+    "JABOATAO DOS GUARARAPES, PE": (-8.1120, -35.0140),
     "PAULISTA, PE": (-7.9400, -34.8731),
     "CABO DE SANTO AGOSTINHO, PE": (-8.2822, -35.0320),
     "IPOJUCA, PE": (-8.3983, -35.0639),
@@ -379,9 +427,9 @@ def _norm_place_key(s: str) -> str:
     return strip_accents_upper(s)
 COORDS_FALLBACK_NORM = { _norm_place_key(k): v for k, v in COORDS_FALLBACK_RAW.items() }
 
-def geocode_city(city: str) -> tuple | None:
+def geocode_city(city: str, uf: str) -> tuple | None:
     city_clean = sanitize_municipio_name(city)
-    key_raw = f"{city_clean}, PE"
+    key_raw = f"{city_clean}, {uf}"
     key_norm = _norm_place_key(key_raw)
 
     cache = st.session_state.get("geocache", {})
@@ -398,8 +446,12 @@ def geocode_city(city: str) -> tuple | None:
 
     if _GEOPY_OK:
         try:
+            if uf == "AL":
+                estado_nome = "Alagoas"
+            else:
+                estado_nome = "Pernambuco"
             geolocator = Nominatim(user_agent="nf_extractor_ws")
-            loc = geolocator.geocode(f"{city_clean}, Pernambuco, Brazil", timeout=10)
+            loc = geolocator.geocode(f"{city_clean}, {estado_nome}, Brazil", timeout=10)
             if loc:
                 latlon = (loc.latitude, loc.longitude)
                 cache[key_raw] = latlon
@@ -423,12 +475,18 @@ def _color_for(z):
         return "blue"
     return "gray"
 
-def build_map_folium(df_destinos: pd.DataFrame):
+def build_map_folium(df_destinos: pd.DataFrame, origem: str):
     if df_destinos.empty:
         st.info("Sem destinos válidos para plotar no mapa.")
         return
 
-    m = folium.Map(location=[-8.38, -37.86], zoom_start=6, tiles="OpenStreetMap")
+    origem_norm = strip_accents_upper(origem)
+    if "MACEIO" in origem_norm:
+        center = [-9.6658, -35.7353]  # Maceió / AL
+    else:
+        center = [-8.0476, -34.8770]  # Recife / PE
+
+    m = folium.Map(location=center, zoom_start=7, tiles="OpenStreetMap")
 
     lats = []
     lons = []
@@ -464,7 +522,7 @@ def build_map_folium(df_destinos: pd.DataFrame):
       <div style="font-weight:700; margin-bottom:6px;">Legenda</div>
       <div><span style="background:red; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Capital</div>
       <div><span style="background:blue; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Metropolitana</div>
-      <div><span style="background:gray; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Outros</div>
+      <div><span style="background:gray; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Outros / Interior</div>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
@@ -480,7 +538,12 @@ with left:
     st.markdown("#### 1) Envie o arquivo `.txt`")
     uploaded = st.file_uploader("Selecione o `texto_extraido.txt`", type=["txt"])
 with right:
-    st.empty()
+    origem = st.selectbox(
+        "Cidade de origem",
+        options=["Recife (PE)", "Maceió (AL)"],
+        index=0,
+        help="Usado para aplicar a tabela de frete (PE ou AL) e classificar Capital / Metropolitana / Interior."
+    )
 
 st.write("")
 
@@ -493,9 +556,19 @@ if uploaded is not None:
         st.warning("Não encontrei notas no TXT. Verifique o layout.")
         st.stop()
 
-    excel_bytes, df = salvar_excel_bytes(registros)
+    excel_bytes, df = salvar_excel_bytes(registros, origem)
 
     # KPIs
+    capital_count = (df["ZONA"] == "Capital").sum()
+    metro_count = (df["ZONA"] == "Metropolitana").sum()
+    origem_norm = strip_accents_upper(origem)
+    if "MACEIO" in origem_norm:
+        terceiro_nome = "Interior"
+        terceiro_count = (df["ZONA"] == "Interior").sum()
+    else:
+        terceiro_nome = "Outros"
+        terceiro_count = (df["ZONA"] == "Outros").sum()
+
     col1, col2, col3 = st.columns(3)
     col1.markdown(
         "<div class='kpi'><div class='label'>Notas extraídas</div>"
@@ -508,10 +581,8 @@ if uploaded is not None:
         unsafe_allow_html=True
     )
     col3.markdown(
-        "<div class='kpi'><div class='label'>Capital/Metro/Outros</div>"
-        f"<div class='value'>{(df['ZONA']=='Capital').sum()}/"
-        f"{(df['ZONA']=='Metropolitana').sum()}/"
-        f"{(df['ZONA']=='Outros').sum()}</div></div>",
+        "<div class='kpi'><div class='label'>Capital / Metro / " + terceiro_nome + "</div>"
+        f"<div class='value'>{capital_count}/{metro_count}/{terceiro_count}</div></div>",
         unsafe_allow_html=True
     )
 
@@ -527,7 +598,7 @@ if uploaded is not None:
         st.dataframe(df.head(20), use_container_width=True)
 
     # ----- MAPA -----
-    st.markdown("#### 2) Mapa ilustrativo dos destinos em Pernambuco")
+    st.markdown("#### 2) Mapa ilustrativo dos destinos")
 
     cache_col1, _ = st.columns([1, 3])
     with cache_col1:
@@ -555,24 +626,24 @@ if uploaded is not None:
         .tolist()
     )
 
+    uf_origem = "AL" if "MACEIO" in origem_norm else "PE"
+
     pontos = []
     nao_plotados = []
     for mun in municipios:
-        z, _ = classificar_zona_ibge(mun)
-        latlon = geocode_city(mun)
+        z, _ = classificar_zona_ibge(mun, origem)
+        latlon = geocode_city(mun, uf_origem)
         if latlon:
             lat, lon = latlon
-            pontos.append({"municipio": f"{mun}, PE", "lat": lat, "lon": lon, "ZONA": z})
+            pontos.append({"municipio": f"{mun}, {uf_origem}", "lat": lat, "lon": lon, "ZONA": z})
         else:
             nao_plotados.append(mun)
 
     df_map = pd.DataFrame(pontos)
     st.caption(f"🗺️ Plotados: {len(df_map)} | Municípios distintos no TXT: {len(municipios)}")
-    build_map_folium(df_map)
+    build_map_folium(df_map, origem)
 
     if nao_plotados:
         st.caption("⚠️ Municípios não plotados (sem coordenadas/OSM): " + ", ".join(sorted(set(nao_plotados))))
 else:
     st.info("Faça o upload do arquivo TXT para iniciar a extração.")
-
-
