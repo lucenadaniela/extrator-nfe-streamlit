@@ -538,4 +538,140 @@ def build_map_folium(df_destinos: pd.DataFrame, origem: str):
         ).add_to(m)
 
     if lats and lons:
-        m.fit_bounds([[min(lat]()]()_
+        m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]])
+
+    legend_html = """
+    <div style="
+        position: fixed; bottom: 20px; left: 20px; z-index: 9999;
+        background: rgba(255,255,255,0.98); padding: 10px 12px;
+        border: 1px solid #bbb; border-radius: 8px; color:#111; font-size: 13px;">
+      <div style="font-weight:700; margin-bottom:6px;">Legenda</div>
+      <div><span style="background:red; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Capital</div>
+      <div><span style="background:blue; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Metropolitana</div>
+      <div><span style="background:gray; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Outros / Interior</div>
+    </div>
+    """
+    m.get_root().html.add_child(folium.Element(legend_html))
+    st_folium(m, width=None, height=PLOT_HEIGHT)
+
+# =================== UI ===================
+st.markdown(f"### {APP_TITLE}")
+st.caption(SUBTITLE)
+st.write("")
+
+left, right = st.columns([1.2, 1])
+with left:
+    st.markdown("#### 1) Envie o arquivo `.txt`")
+    uploaded = st.file_uploader("Selecione o `texto_extraido.txt`", type=["txt"])
+with right:
+    st.empty()
+
+st.write("")
+
+if uploaded is not None:
+    texto = uploaded.read().decode("utf-8", errors="ignore")
+
+    # 1) Extrai registros
+    with st.spinner("Extraindo dados do TXT..."):
+        registros = extrair_notas_de_texto(texto)
+
+    if not registros:
+        st.warning("Não encontrei notas no TXT. Verifique o layout.")
+        st.stop()
+
+    # 2) Detecta origem com base nos municípios extraídos
+    origem = detectar_origem_por_municipios(registros)
+    st.caption(f"🏁 Origem detectada automaticamente: **{origem}**")
+
+    # 3) Monta Excel com classificação e valor de frete
+    excel_bytes, df = salvar_excel_bytes(registros, origem)
+
+    # KPIs
+    capital_count = (df["ZONA"] == "Capital").sum()
+    metro_count = (df["ZONA"] == "Metropolitana").sum()
+    origem_norm = strip_accents_upper(origem)
+    if "MACEIO" in origem_norm:
+        terceiro_nome = "Interior"
+        terceiro_count = (df["ZONA"] == "Interior").sum()
+    else:
+        terceiro_nome = "Outros"
+        terceiro_count = (df["ZONA"] == "Outros").sum()
+
+    col1, col2, col3 = st.columns(3)
+    col1.markdown(
+        "<div class='kpi'><div class='label'>Notas extraídas</div>"
+        f"<div class='value'>{len(df)}</div></div>",
+        unsafe_allow_html=True
+    )
+    col2.markdown(
+        "<div class='kpi'><div class='label'>Municípios distintos</div>"
+        f"<div class='value'>{df['MUNICÍPIO'].nunique()}</div></div>",
+        unsafe_allow_html=True
+    )
+    col3.markdown(
+        "<div class='kpi'><div class='label'>Capital / Metro / " + terceiro_nome + "</div>"
+        f"<div class='value'>{capital_count}/{metro_count}/{terceiro_count}</div></div>",
+        unsafe_allow_html=True
+    )
+
+    st.write("")
+    st.download_button(
+        label="⬇️ Baixar Excel extraído",
+        data=excel_bytes,
+        file_name="notas_extraidas.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    with st.expander("Pré-visualização (primeiras linhas)"):
+        st.dataframe(df.head(20), use_container_width=True)
+
+    # ----- MAPA -----
+    st.markdown("#### 2) Mapa ilustrativo dos destinos")
+
+    cache_col1, _ = st.columns([1, 3])
+    with cache_col1:
+        if st.button("🧹 Limpar cache de coordenadas"):
+            st.session_state["geocache"] = {}
+            try:
+                if os.path.exists(GEOCACHE_FILE):
+                    os.remove(GEOCACHE_FILE)
+            except Exception:
+                pass
+            st.success("Cache limpo! Gere o mapa novamente.")
+
+    if "geocache" not in st.session_state:
+        st.session_state["geocache"] = load_geocache()
+
+    municipios = (
+        df["MUNICÍPIO"]
+        .dropna()
+        .astype(str)
+        .map(sanitize_municipio_name)
+        .str.strip()
+        .replace("", pd.NA)
+        .dropna()
+        .unique()
+        .tolist()
+    )
+
+    uf_origem = "AL" if "MACEIO" in origem_norm else "PE"
+
+    pontos = []
+    nao_plotados = []
+    for mun in municipios:
+        z, _ = classificar_zona_ibge(mun, origem)
+        latlon = geocode_city(mun, uf_origem)
+        if latlon:
+            lat, lon = latlon
+            pontos.append({"municipio": f"{mun}, {uf_origem}", "lat": lat, "lon": lon, "ZONA": z})
+        else:
+            nao_plotados.append(mun)
+
+    df_map = pd.DataFrame(pontos)
+    st.caption(f"🗺️ Plotados: {len(df_map)} | Municípios distintos no TXT: {len(municipios)}")
+    build_map_folium(df_map, origem)
+
+    if nao_plotados:
+        st.caption("⚠️ Municípios não plotados (sem coordenadas/OSM): " + ", ".join(sorted(set(nao_plotados))))
+else:
+    st.info("Faça o upload do arquivo TXT para iniciar a extração.")
