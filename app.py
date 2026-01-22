@@ -19,7 +19,7 @@ from streamlit_folium import st_folium
 
 # =================== CONFIG ===================
 APP_TITLE = "📄 Extrator de NF-e → Excel"
-SUBTITLE  = "Classificação IBGE (Capital/Metropolitana) + Mapa dos Destinos"
+SUBTITLE  = "Classificação IBGE (Capital/Metropolitana/Interior) + Mapa dos Destinos"
 
 GEOCACHE_FILE = "geocache_destinos.json"
 PLOT_HEIGHT = 520
@@ -33,8 +33,10 @@ RMR_IBGE_PE = {
     "ITAPISSUMA", "ARACOIABA", "MORENO", "ILHA DE ITAMARACA",
 }
 
-VALOR_FRETE_RECIFE_CAPITAL = 165.00
-VALOR_FRETE_RECIFE_METRO   = 170.50
+# ✅ NOVOS FRETES (PERNAMBUCO)
+VALOR_FRETE_RECIFE_CAPITAL  = 130.00
+VALOR_FRETE_RECIFE_METRO    = 130.00
+VALOR_FRETE_RECIFE_INTERIOR = 249.00  # qualquer outra cidade
 
 # ----------------- CONFIG AL (MACEIÓ) -----------------
 # Municípios da Região Metropolitana de Maceió segundo IBGE/legislação
@@ -55,8 +57,10 @@ RMM_MACEIO_IBGE = {
     "SATUBA",
 }
 
-VALOR_FRETE_MACEIO_CAPITAL_METRO = 114.00   # Capital + Região Metropolitana
-VALOR_FRETE_MACEIO_INTERIOR      = 199.50   # Interior Alagoas
+# ✅ NOVOS FRETES (ALAGOAS)
+VALOR_FRETE_MACEIO_CAPITAL  = 110.00
+VALOR_FRETE_MACEIO_METRO    = 249.00
+VALOR_FRETE_MACEIO_INTERIOR = 249.00  # qualquer outra cidade
 
 # Regex auxiliares
 NUM_BR = r'(\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:,\d+)?)'
@@ -116,8 +120,7 @@ def detectar_origem_por_municipios(registros) -> str:
             municipios.append(strip_accents_upper(mun_clean))
 
     if not municipios:
-        # fallback seguro
-        return "Recife (PE)"
+        return "Recife (PE)"  # fallback seguro
 
     pe_hits = sum(1 for k in municipios if k in CAPITAL_IBGE_PE or k in RMR_IBGE_PE)
     al_hits = sum(1 for k in municipios if k in CAPITAL_IBGE_AL or k in RMM_MACEIO_IBGE)
@@ -130,35 +133,42 @@ def detectar_origem_por_municipios(registros) -> str:
 
 def classificar_zona_ibge(municipio: str, origem: str):
     """
-    Classifica município como Capital / Metropolitana / Outros / Interior,
+    Classifica município como Capital / Metropolitana / Interior,
     e já retorna o valor de frete de acordo com a cidade de origem.
+
+    ✅ Regras finais:
+    - AL (Maceió): Capital 110 | Metro 249 | Interior 249
+    - PE (Recife): Capital 130 | Metro 130 | Interior 249
     """
     key = strip_accents_upper(municipio)
     origem_norm = strip_accents_upper(origem)
 
-    # --- Tabela Recife / PE ---
+    # --- Origem Recife / PE ---
     if "RECIFE" in origem_norm:
         if key in CAPITAL_IBGE_PE:
             return "Capital", VALOR_FRETE_RECIFE_CAPITAL
         if key in RMR_IBGE_PE:
             return "Metropolitana", VALOR_FRETE_RECIFE_METRO
-        return "Outros", None
+        return "Interior", VALOR_FRETE_RECIFE_INTERIOR
 
-    # --- Tabela Maceió / AL ---
+    # --- Origem Maceió / AL ---
     if "MACEIO" in origem_norm:
         if key in CAPITAL_IBGE_AL:
-            return "Capital", VALOR_FRETE_MACEIO_CAPITAL_METRO
+            return "Capital", VALOR_FRETE_MACEIO_CAPITAL
         if key in RMM_MACEIO_IBGE:
-            return "Metropolitana", VALOR_FRETE_MACEIO_CAPITAL_METRO
-        # demais cidades de AL: interior
+            return "Metropolitana", VALOR_FRETE_MACEIO_METRO
         return "Interior", VALOR_FRETE_MACEIO_INTERIOR
 
-    # Fallback (caso dê algo estranho): trata como Recife
+    # Fallback: tenta inferir pelo município (AL/PE), senão assume Interior PE
+    if key in CAPITAL_IBGE_AL:
+        return "Capital", VALOR_FRETE_MACEIO_CAPITAL
+    if key in RMM_MACEIO_IBGE:
+        return "Metropolitana", VALOR_FRETE_MACEIO_METRO
     if key in CAPITAL_IBGE_PE:
         return "Capital", VALOR_FRETE_RECIFE_CAPITAL
     if key in RMR_IBGE_PE:
         return "Metropolitana", VALOR_FRETE_RECIFE_METRO
-    return "Outros", None
+    return "Interior", VALOR_FRETE_RECIFE_INTERIOR
 
 def prox_nao_vazia(linhas, j, max_look=15):
     n = len(linhas)
@@ -499,7 +509,7 @@ def _color_for(z):
         return "red"
     if z == "Metropolitana":
         return "blue"
-    return "gray"
+    return "gray"  # Interior
 
 def build_map_folium(df_destinos: pd.DataFrame, origem: str):
     if df_destinos.empty:
@@ -548,7 +558,7 @@ def build_map_folium(df_destinos: pd.DataFrame, origem: str):
       <div style="font-weight:700; margin-bottom:6px;">Legenda</div>
       <div><span style="background:red; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Capital</div>
       <div><span style="background:blue; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Metropolitana</div>
-      <div><span style="background:gray; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Outros / Interior</div>
+      <div><span style="background:gray; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Interior</div>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
@@ -587,15 +597,9 @@ if uploaded is not None:
     excel_bytes, df = salvar_excel_bytes(registros, origem)
 
     # KPIs
-    capital_count = (df["ZONA"] == "Capital").sum()
-    metro_count = (df["ZONA"] == "Metropolitana").sum()
-    origem_norm = strip_accents_upper(origem)
-    if "MACEIO" in origem_norm:
-        terceiro_nome = "Interior"
-        terceiro_count = (df["ZONA"] == "Interior").sum()
-    else:
-        terceiro_nome = "Outros"
-        terceiro_count = (df["ZONA"] == "Outros").sum()
+    capital_count  = (df["ZONA"] == "Capital").sum()
+    metro_count    = (df["ZONA"] == "Metropolitana").sum()
+    interior_count = (df["ZONA"] == "Interior").sum()
 
     col1, col2, col3 = st.columns(3)
     col1.markdown(
@@ -609,8 +613,8 @@ if uploaded is not None:
         unsafe_allow_html=True
     )
     col3.markdown(
-        "<div class='kpi'><div class='label'>Capital / Metro / " + terceiro_nome + "</div>"
-        f"<div class='value'>{capital_count}/{metro_count}/{terceiro_count}</div></div>",
+        "<div class='kpi'><div class='label'>Capital / Metro / Interior</div>"
+        f"<div class='value'>{capital_count}/{metro_count}/{interior_count}</div></div>",
         unsafe_allow_html=True
     )
 
@@ -654,6 +658,7 @@ if uploaded is not None:
         .tolist()
     )
 
+    origem_norm = strip_accents_upper(origem)
     uf_origem = "AL" if "MACEIO" in origem_norm else "PE"
 
     pontos = []
