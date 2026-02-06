@@ -1,13 +1,21 @@
+# app.py
+# -*- coding: utf-8 -*-
+from __future__ import annotations
+
 import io
 import os
 import re
 import json
 import time
 import unicodedata
+import xml.etree.ElementTree as ET
+from io import BytesIO
+from typing import Optional, Dict, Any, List, Tuple
+
 import pandas as pd
 import streamlit as st
 
-# --- geocoding opcional ---
+# --- geocoding opcional (PLUMA) ---
 try:
     from geopy.geocoders import Nominatim
     _GEOPY_OK = True
@@ -17,14 +25,40 @@ except Exception:
 import folium
 from streamlit_folium import st_folium
 
-# =================== CONFIG ===================
-APP_TITLE = "📄 Extrator de NF-e → Excel"
-SUBTITLE  = "Classificação IBGE (Capital/Metropolitana/Interior) + Mapa dos Destinos"
 
+# =========================================================
+# CONFIG GERAL
+# =========================================================
+st.set_page_config(page_title="Extrator NF-e (Clientes)", page_icon="📄", layout="wide")
+
+st.markdown("""
+<style>
+.main .block-container {max-width: 1200px;}
+.stDownloadButton > button {border-radius: 10px; padding: 10px 16px; font-weight: 600;}
+.kpi {text-align:center; border-radius:14px; padding:16px; border:1px solid #ececf3; background:#fff;}
+.kpi .label {color:#4b5563; font-size:12px;}
+.kpi .value {font-weight:800; font-size:24px; color:#111827;}
+.leaflet-control-attribution {font-size:12px !important;}
+</style>
+""", unsafe_allow_html=True)
+
+CLIENTES = [
+    "PLUMA ESPUMAS LTDA (TXT)",
+    "NORSA REFRIGERANTES S.A (XML)",
+]
+
+st.title("📄 Extrator NF-e → Excel (por cliente)")
+st.caption("Escolha o cliente e envie o arquivo no formato correto. Eu gero a planilha certinha por layout.")
+
+
+# =========================================================
+# =====================  PLUMA (TXT)  =====================
+# =========================================================
+
+# -------- Config IBGE / Fretes --------
 GEOCACHE_FILE = "geocache_destinos.json"
 PLOT_HEIGHT = 520
 
-# ----------------- CONFIG PE (RECIFE) -----------------
 CAPITAL_IBGE_PE = {"RECIFE"}
 RMR_IBGE_PE = {
     "RECIFE", "OLINDA", "JABOATAO DOS GUARARAPES", "PAULISTA",
@@ -33,62 +67,33 @@ RMR_IBGE_PE = {
     "ITAPISSUMA", "ARACOIABA", "MORENO", "ILHA DE ITAMARACA",
 }
 
-# ✅ NOVOS FRETES (PERNAMBUCO)
 VALOR_FRETE_RECIFE_CAPITAL  = 130.00
 VALOR_FRETE_RECIFE_METRO    = 130.00
-VALOR_FRETE_RECIFE_INTERIOR = 249.00  # qualquer outra cidade
+VALOR_FRETE_RECIFE_INTERIOR = 249.00
 
-# ----------------- CONFIG AL (MACEIÓ) -----------------
-# Municípios da Região Metropolitana de Maceió segundo IBGE/legislação
 CAPITAL_IBGE_AL = {"MACEIO"}
 RMM_MACEIO_IBGE = {
-    "ATALAIA",
-    "BARRA DE SANTO ANTONIO",
-    "BARRA DE SAO MIGUEL",
-    "COQUEIRO SECO",
-    "MACEIO",
-    "MARECHAL DEODORO",
-    "MESSIAS",
-    "MURICI",
-    "PARIPUEIRA",
-    "PILAR",
-    "RIO LARGO",
-    "SANTA LUZIA DO NORTE",
-    "SATUBA",
+    "ATALAIA", "BARRA DE SANTO ANTONIO", "BARRA DE SAO MIGUEL", "COQUEIRO SECO",
+    "MACEIO", "MARECHAL DEODORO", "MESSIAS", "MURICI", "PARIPUEIRA", "PILAR",
+    "RIO LARGO", "SANTA LUZIA DO NORTE", "SATUBA",
 }
 
-# ✅ NOVOS FRETES (ALAGOAS)
 VALOR_FRETE_MACEIO_CAPITAL  = 110.00
 VALOR_FRETE_MACEIO_METRO    = 249.00
-VALOR_FRETE_MACEIO_INTERIOR = 249.00  # qualquer outra cidade
+VALOR_FRETE_MACEIO_INTERIOR = 249.00
 
-# Regex auxiliares
 NUM_BR = r'(\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:,\d+)?)'
 TEL_PAT = re.compile(r'(\(?\d{2}\)?\s*\d{4,5}[-\s]?\d{4}|\b\d{10,11}\b)')
 RE_CEP_EXATO = re.compile(r'\b\d{5}-\d{3}\b')
 
-# =================== ESTILO ===================
-st.set_page_config(page_title="Extrator NF-e", page_icon="📄", layout="wide")
-st.markdown("""
-<style>
-.main .block-container {max-width: 1200px;}
-.stDownloadButton > button {
-    border-radius: 10px; padding: 10px 16px; font-weight: 600;
-}
-.kpi {text-align:center; border-radius:14px; padding:16px; border:1px solid #ececf3; background:#fff;}
-.kpi .label {color:#4b5563; font-size:12px;}
-.kpi .value {font-weight:800; font-size:24px; color:#111827;}
-.leaflet-control-attribution {font-size:12px !important;}
-</style>
-""", unsafe_allow_html=True)
 
-# =================== HELPERS ===================
 def strip_accents_upper(s: str) -> str:
     if not s:
         return ""
     s = unicodedata.normalize("NFD", s)
     s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
     return s.upper().strip()
+
 
 def sanitize_municipio_name(raw: str) -> str:
     if not raw:
@@ -99,17 +104,8 @@ def sanitize_municipio_name(raw: str) -> str:
     s = re.sub(r"\s{2,}", " ", s).strip()
     return s
 
-def detectar_origem_por_municipios(registros) -> str:
-    """
-    Usa os municípios extraídos para decidir se a origem é Recife (PE) ou Maceió (AL).
 
-    Regra:
-    - Conta quantos municípios são da RMR Recife (PE).
-    - Conta quantos municípios são da RMM Maceió (AL) / Maceió.
-    - Se AL > PE -> Maceió (AL)
-    - Se AL > 0 e PE == 0 -> Maceió (AL)
-    - Caso contrário -> Recife (PE)
-    """
+def detectar_origem_por_municipios(registros) -> str:
     municipios = []
     for reg in registros:
         mun = reg.get("MUNICÍPIO")
@@ -120,7 +116,7 @@ def detectar_origem_por_municipios(registros) -> str:
             municipios.append(strip_accents_upper(mun_clean))
 
     if not municipios:
-        return "Recife (PE)"  # fallback seguro
+        return "Recife (PE)"
 
     pe_hits = sum(1 for k in municipios if k in CAPITAL_IBGE_PE or k in RMR_IBGE_PE)
     al_hits = sum(1 for k in municipios if k in CAPITAL_IBGE_AL or k in RMM_MACEIO_IBGE)
@@ -131,19 +127,11 @@ def detectar_origem_por_municipios(registros) -> str:
         return "Maceió (AL)"
     return "Recife (PE)"
 
-def classificar_zona_ibge(municipio: str, origem: str):
-    """
-    Classifica município como Capital / Metropolitana / Interior,
-    e já retorna o valor de frete de acordo com a cidade de origem.
 
-    ✅ Regras finais:
-    - AL (Maceió): Capital 110 | Metro 249 | Interior 249
-    - PE (Recife): Capital 130 | Metro 130 | Interior 249
-    """
+def classificar_zona_ibge(municipio: str, origem: str):
     key = strip_accents_upper(municipio)
     origem_norm = strip_accents_upper(origem)
 
-    # --- Origem Recife / PE ---
     if "RECIFE" in origem_norm:
         if key in CAPITAL_IBGE_PE:
             return "Capital", VALOR_FRETE_RECIFE_CAPITAL
@@ -151,7 +139,6 @@ def classificar_zona_ibge(municipio: str, origem: str):
             return "Metropolitana", VALOR_FRETE_RECIFE_METRO
         return "Interior", VALOR_FRETE_RECIFE_INTERIOR
 
-    # --- Origem Maceió / AL ---
     if "MACEIO" in origem_norm:
         if key in CAPITAL_IBGE_AL:
             return "Capital", VALOR_FRETE_MACEIO_CAPITAL
@@ -159,7 +146,7 @@ def classificar_zona_ibge(municipio: str, origem: str):
             return "Metropolitana", VALOR_FRETE_MACEIO_METRO
         return "Interior", VALOR_FRETE_MACEIO_INTERIOR
 
-    # Fallback: tenta inferir pelo município (AL/PE), senão assume Interior PE
+    # fallback
     if key in CAPITAL_IBGE_AL:
         return "Capital", VALOR_FRETE_MACEIO_CAPITAL
     if key in RMM_MACEIO_IBGE:
@@ -169,6 +156,7 @@ def classificar_zona_ibge(municipio: str, origem: str):
     if key in RMR_IBGE_PE:
         return "Metropolitana", VALOR_FRETE_RECIFE_METRO
     return "Interior", VALOR_FRETE_RECIFE_INTERIOR
+
 
 def prox_nao_vazia(linhas, j, max_look=15):
     n = len(linhas)
@@ -182,6 +170,7 @@ def prox_nao_vazia(linhas, j, max_look=15):
         passos += 1
     return ""
 
+
 def normalize_phone(raw: str) -> str:
     if not raw:
         return ""
@@ -192,9 +181,11 @@ def normalize_phone(raw: str) -> str:
         return f"({digits[:2]}){digits[2:6]}-{digits[6:]}"
     return re.sub(r"\s+", " ", raw).strip()
 
+
 def find_phone_in_text(txt: str) -> str:
     m = TEL_PAT.search(txt or "")
     return normalize_phone(m.group(1)) if m else ""
+
 
 def extrair_cep_exato(txt: str) -> str:
     if not txt:
@@ -202,7 +193,7 @@ def extrair_cep_exato(txt: str) -> str:
     m = RE_CEP_EXATO.search(txt)
     return m.group(0) if m else ""
 
-# =================== EXTRAÇÃO ===================
+
 def extrair_notas_de_texto(texto: str):
     linhas = [l.strip() for l in texto.splitlines()]
     registros = []
@@ -213,7 +204,6 @@ def extrair_notas_de_texto(texto: str):
     while i < n:
         linha = linhas[i]
 
-        # Início da NF
         m_num = re.search(r'\bN[ºo]\s*([0-9\.\-]+)', linha, flags=re.IGNORECASE)
         if m_num:
             if atual:
@@ -238,39 +228,34 @@ def extrair_notas_de_texto(texto: str):
             continue
 
         if atual is not None:
-            # NOME / RAZÃO SOCIAL
             if re.fullmatch(r'NOME\s*/\s*RAZÃO SOCIAL', linha, flags=re.IGNORECASE) and atual["NOME / RAZÃO SOCIAL"] is None:
                 v = prox_nao_vazia(linhas, i + 1)
                 if v:
                     atual["NOME / RAZÃO SOCIAL"] = v
 
-            # ENDEREÇO
             if re.fullmatch(r'ENDEREÇO', linha, flags=re.IGNORECASE):
                 v = prox_nao_vazia(linhas, i + 1)
                 if v:
                     atual["ENDEREÇO"] = v
 
-            # BAIRRO / DISTRITO
             if re.fullmatch(r'BAIRRO\s*/\s*DISTRITO', linha, flags=re.IGNORECASE):
                 v = prox_nao_vazia(linhas, i + 1)
                 if v:
                     atual["BAIRRO / DISTRITO"] = v
 
-            # MUNICÍPIO
             if re.fullmatch(r'MUNICÍPIO', linha, flags=re.IGNORECASE):
                 v = prox_nao_vazia(linhas, i + 1)
                 if v:
                     v_limpo = re.split(r'\bUF\b|CEP|\bPE\b|\bAL\b|\d{2}:\d{2}:\d{2}', v, maxsplit=1)[0].strip(" -")
                     atual["MUNICÍPIO"] = v_limpo or v
 
-            # VALOR TOTAL DA NOTA
             if re.fullmatch(r'VALOR TOTAL DA NOTA', linha, flags=re.IGNORECASE):
                 v = prox_nao_vazia(linhas, i + 1)
                 if v:
                     m_val = re.search(NUM_BR, v)
                     atual["VALOR TOTAL DA NOTA"] = (m_val.group(1) if m_val else v).replace("R$", "").strip()
 
-            # ===== PESO BRUTO =====
+            # PESO BRUTO
             if re.fullmatch(r'PESO\s+BRUTO', linha, flags=re.IGNORECASE) and not atual["PESO BRUTO"]:
                 v = prox_nao_vazia(linhas, i + 1, max_look=10)
                 if v:
@@ -286,7 +271,7 @@ def extrair_notas_de_texto(texto: str):
                 if m:
                     atual["PESO BRUTO"] = m.group(1)
 
-            # ===== QUANTIDADE =====
+            # QUANTIDADE
             if atual["QUANTIDADE"] is None:
                 m_qt = re.search(r'(\d+)\s+VOLUMES', linha, flags=re.IGNORECASE)
                 if m_qt:
@@ -298,14 +283,14 @@ def extrair_notas_de_texto(texto: str):
                         if m_next:
                             atual["QUANTIDADE"] = m_next.group(1)
 
-            # ===== CEP =====
+            # CEP
             if linha.strip().upper() == "CEP" and not atual["CEP"]:
                 v = prox_nao_vazia(linhas, i + 1, max_look=15)
                 atual["CEP"] = extrair_cep_exato(v)
             elif not atual["CEP"]:
                 atual["CEP"] = extrair_cep_exato(linha)
 
-            # ===== TELEFONE / FAX =====
+            # TELEFONE / FAX
             if re.fullmatch(r'TELEFONE\s*/\s*FAX', linha, flags=re.IGNORECASE) and not atual["TELEFONE / FAX"]:
                 v = prox_nao_vazia(linhas, i + 1, max_look=6)
                 if not re.match(r'INSCRIÇÃO|DESTINAT[ÁA]RIO', v, flags=re.IGNORECASE):
@@ -318,7 +303,7 @@ def extrair_notas_de_texto(texto: str):
                     if tel:
                         atual["TELEFONE / FAX"] = tel
 
-            # ===== TELEFONE 2 =====
+            # TELEFONE 2
             if ("RASTREAMENTO" in linha.upper()) or ("ENTREGAID" in linha.upper()) or ("TELEFONE 2" in linha.upper()):
                 m_t2 = re.search(r'TELEFONE\s*2\s*:\s*([^;]*)', linha, flags=re.IGNORECASE)
                 if m_t2:
@@ -326,39 +311,26 @@ def extrair_notas_de_texto(texto: str):
                     if valor:
                         atual["TELEFONE 2"] = find_phone_in_text(valor)
 
-            # ===== VENDEDOR / INTEGRACAO =====
+            # VENDEDOR / INTEGRACAO
             if "#VENDEDOR" in linha.upper() and not atual.get("VENDEDOR"):
-                m_vend = re.search(
-                    r'#VENDEDOR\s*:\s*(.*?)\s+NOSSO\s+PEDIDO',
-                    linha,
-                    flags=re.IGNORECASE
-                )
+                m_vend = re.search(r'#VENDEDOR\s*:\s*(.*?)\s+NOSSO\s+PEDIDO', linha, flags=re.IGNORECASE)
                 if m_vend:
                     atual["VENDEDOR"] = m_vend.group(1).strip(" :;-")
 
             if "INTEGRACAO" in linha.upper() and not atual.get("INTEGRACAO"):
                 prox = prox_nao_vazia(linhas, i + 1, max_look=3)
                 bloco = linha + " " + (prox or "")
-                m_int = re.search(
-                    r'Integracao\s*:\s*(.+?)(?:-+\s*EntregaID\b|;|\Z)',
-                    bloco,
-                    flags=re.IGNORECASE
-                )
+                m_int = re.search(r'Integracao\s*:\s*(.+?)(?:-+\s*EntregaID\b|;|\Z)', bloco, flags=re.IGNORECASE)
                 if m_int:
                     atual["INTEGRACAO"] = m_int.group(1).strip(" :;-")
 
-            # ===== CUBAGEM =====
+            # CUBAGEM
             if "CUBAGEM" in linha.upper() and not atual.get("CUBAGEM"):
                 prox = prox_nao_vazia(linhas, i + 1, max_look=2)
                 bloco = linha + " " + (prox or "")
-                m_cub = re.search(
-                    r'CUBAGEM\s*[:\-]\s*([^;]+)',
-                    bloco,
-                    flags=re.IGNORECASE
-                )
+                m_cub = re.search(r'CUBAGEM\s*[:\-]\s*([^;]+)', bloco, flags=re.IGNORECASE)
                 if m_cub:
-                    valor_cub = m_cub.group(1).strip()
-                    atual["CUBAGEM"] = valor_cub
+                    atual["CUBAGEM"] = m_cub.group(1).strip()
 
         i += 1
 
@@ -366,10 +338,11 @@ def extrair_notas_de_texto(texto: str):
         registros.append(atual)
     return registros
 
-def salvar_excel_bytes(registros, origem: str) -> tuple[bytes, pd.DataFrame]:
+
+def salvar_excel_bytes_pluma(registros, origem: str) -> Tuple[bytes, pd.DataFrame]:
     df = pd.DataFrame(registros)
 
-    # Une linhas quebradas com mesmo Nº consecutivo
+    # une linhas quebradas por mesmo Nº consecutivo
     df_clean = []
     skip_next = False
     for i in range(len(df)):
@@ -386,8 +359,7 @@ def salvar_excel_bytes(registros, origem: str) -> tuple[bytes, pd.DataFrame]:
                 "VENDEDOR", "INTEGRACAO",
                 "NOME / RAZÃO SOCIAL", "ENDEREÇO",
                 "BAIRRO / DISTRITO", "MUNICÍPIO", "CEP",
-                "VALOR TOTAL DA NOTA",
-                "CUBAGEM",
+                "VALOR TOTAL DA NOTA", "CUBAGEM",
             ]:
                 if not str(combined.get(campo, "")).strip():
                     combined[campo] = row.get(campo)
@@ -397,9 +369,8 @@ def salvar_excel_bytes(registros, origem: str) -> tuple[bytes, pd.DataFrame]:
             df_clean.append(row)
     df = pd.DataFrame(df_clean).reset_index(drop=True)
 
-    # Classificação IBGE + valor de frete conforme origem
-    zonas = []
-    fretes = []
+    # classifica zona e frete
+    zonas, fretes = [], []
     for mun in df["MUNICÍPIO"].fillna(""):
         z, f = classificar_zona_ibge(mun, origem)
         zonas.append(z)
@@ -424,7 +395,8 @@ def salvar_excel_bytes(registros, origem: str) -> tuple[bytes, pd.DataFrame]:
     buffer.seek(0)
     return buffer.read(), df
 
-# =================== GEOCACHE ===================
+
+# -------- Geocache / mapa (PLUMA) --------
 def load_geocache() -> dict:
     if os.path.exists(GEOCACHE_FILE):
         try:
@@ -434,12 +406,14 @@ def load_geocache() -> dict:
             return {}
     return {}
 
+
 def save_geocache(cache: dict):
     try:
         with open(GEOCACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(cache, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
+
 
 COORDS_FALLBACK_RAW = {
     "RECIFE, PE": (-8.0476, -34.8770),
@@ -449,24 +423,25 @@ COORDS_FALLBACK_RAW = {
     "CABO DE SANTO AGOSTINHO, PE": (-8.2822, -35.0320),
     "IPOJUCA, PE": (-8.3983, -35.0639),
     "CAMARAGIBE, PE": (-8.0207, -34.9786),
-    "SÃO LOURENÇO DA MATA, PE": (-8.0062, -35.0199),
+    "SAO LOURENCO DA MATA, PE": (-8.0062, -35.0199),
     "ABREU E LIMA, PE": (-7.9007, -34.9027),
     "IGARASSU, PE": (-7.8340, -34.9069),
     "ITAPISSUMA, PE": (-7.7750, -34.8954),
-    "ARAÇOIABA, PE": (-7.7913, -35.0800),
+    "ARACOIABA, PE": (-7.7913, -35.0800),
     "MORENO, PE": (-8.1180, -35.0920),
-    "ILHA DE ITAMARACÁ, PE": (-7.7478, -34.8332),
-    # variações
-    "JABOATAO DOS GUARARAPES, PE": (-8.1120, -35.0140),
     "ILHA DE ITAMARACA, PE": (-7.7478, -34.8332),
-    "SAO LOURENCO DA MATA, PE": (-8.0062, -35.0199),
-    "PAULISTA, PERNAMBUCO": (-7.9400, -34.8731),
+    "ILHA DE ITAMARACÁ, PE": (-7.7478, -34.8332),
 }
+
+
 def _norm_place_key(s: str) -> str:
     return strip_accents_upper(s)
-COORDS_FALLBACK_NORM = { _norm_place_key(k): v for k, v in COORDS_FALLBACK_RAW.items() }
 
-def geocode_city(city: str, uf: str) -> tuple | None:
+
+COORDS_FALLBACK_NORM = {_norm_place_key(k): v for k, v in COORDS_FALLBACK_RAW.items()}
+
+
+def geocode_city(city: str, uf: str) -> Optional[Tuple[float, float]]:
     city_clean = sanitize_municipio_name(city)
     key_raw = f"{city_clean}, {uf}"
     key_norm = _norm_place_key(key_raw)
@@ -503,13 +478,14 @@ def geocode_city(city: str, uf: str) -> tuple | None:
     save_geocache(cache)
     return None
 
-# =================== MAPA (FOLIUM) ===================
+
 def _color_for(z):
     if z == "Capital":
         return "red"
     if z == "Metropolitana":
         return "blue"
-    return "gray"  # Interior
+    return "gray"
+
 
 def build_map_folium(df_destinos: pd.DataFrame, origem: str):
     if df_destinos.empty:
@@ -517,15 +493,10 @@ def build_map_folium(df_destinos: pd.DataFrame, origem: str):
         return
 
     origem_norm = strip_accents_upper(origem)
-    if "MACEIO" in origem_norm:
-        center = [-9.6658, -35.7353]  # Maceió / AL
-    else:
-        center = [-8.0476, -34.8770]  # Recife / PE
-
+    center = [-9.6658, -35.7353] if "MACEIO" in origem_norm else [-8.0476, -34.8770]
     m = folium.Map(location=center, zoom_start=7, tiles="OpenStreetMap")
 
-    lats = []
-    lons = []
+    lats, lons = [], []
     for _, row in df_destinos.iterrows():
         lat = row["lat"]
         lon = row["lon"]
@@ -564,24 +535,144 @@ def build_map_folium(df_destinos: pd.DataFrame, origem: str):
     m.get_root().html.add_child(folium.Element(legend_html))
     st_folium(m, width=None, height=PLOT_HEIGHT)
 
-# =================== UI ===================
-st.markdown(f"### {APP_TITLE}")
-st.caption(SUBTITLE)
+
+# =========================================================
+# =====================  NORSA (XML)  =====================
+# =========================================================
+def _detect_ns(root: ET.Element) -> Dict[str, str]:
+    m = re.match(r"\{(.+)\}", root.tag or "")
+    return {"nfe": m.group(1)} if m else {"nfe": ""}
+
+
+def _find_text(parent: ET.Element, xpath: str, ns: Dict[str, str]) -> Optional[str]:
+    if parent is None:
+        return None
+    if ns.get("nfe"):
+        el = parent.find(xpath, ns)
+    else:
+        el = parent.find(xpath.replace("nfe:", ""))
+    if el is not None and el.text:
+        t = el.text.strip()
+        return t if t else None
+    return None
+
+
+def _find_first_text(parent: ET.Element, xpaths: List[str], ns: Dict[str, str]) -> Optional[str]:
+    for xp in xpaths:
+        v = _find_text(parent, xp, ns)
+        if v is not None:
+            return v
+    return None
+
+
+def _to_float(s: Optional[str]) -> Optional[float]:
+    if s is None:
+        return None
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+
+def parse_nfe_xml(xml_bytes: bytes) -> Dict[str, Any]:
+    root = ET.fromstring(xml_bytes)
+    ns = _detect_ns(root)
+
+    inf = root.find(".//nfe:infNFe", ns) if ns.get("nfe") else root.find(".//infNFe")
+    if inf is None:
+        raise ValueError("Não encontrei <infNFe> no XML. Verifique se é NF-e válida.")
+
+    numero = _find_text(inf, "./nfe:ide/nfe:nNF", ns)
+    nome = _find_text(inf, "./nfe:dest/nfe:xNome", ns)
+
+    xLgr = _find_text(inf, "./nfe:dest/nfe:enderDest/nfe:xLgr", ns)
+    nro  = _find_text(inf, "./nfe:dest/nfe:enderDest/nfe:nro", ns)
+    xCpl = _find_text(inf, "./nfe:dest/nfe:enderDest/nfe:xCpl", ns)
+
+    endereco_parts = [p for p in [xLgr, nro] if p]
+    endereco = ", ".join(endereco_parts) if endereco_parts else None
+    if xCpl:
+        endereco = f"{endereco} - {xCpl}" if endereco else xCpl
+
+    bairro = _find_text(inf, "./nfe:dest/nfe:enderDest/nfe:xBairro", ns)
+    municipio = _find_text(inf, "./nfe:dest/nfe:enderDest/nfe:xMun", ns)
+    cep = _find_text(inf, "./nfe:dest/nfe:enderDest/nfe:CEP", ns)
+
+    fone = _find_first_text(
+        inf,
+        [
+            "./nfe:dest/nfe:enderDest/nfe:fone",
+            "./nfe:emit/nfe:enderEmit/nfe:fone",
+        ],
+        ns,
+    )
+
+    v_nf = _to_float(_find_text(inf, "./nfe:total/nfe:ICMSTot/nfe:vNF", ns))
+    q_vol = _to_float(_find_text(inf, "./nfe:transp/nfe:vol/nfe:qVol", ns))
+
+    dets = inf.findall("./nfe:det", ns) if ns.get("nfe") else inf.findall("./det")
+    sum_qcom = 0.0
+    for det in dets:
+        qcom = _to_float(_find_text(det, "./nfe:prod/nfe:qCom", ns))
+        if qcom is not None:
+            sum_qcom += qcom
+
+    quantidade = q_vol if q_vol is not None else (sum_qcom if sum_qcom > 0 else None)
+
+    peso_bruto = _to_float(
+        _find_first_text(
+            inf,
+            [
+                "./nfe:transp/nfe:vol/nfe:pesoB",
+                "./nfe:transp/nfe:vol/nfe:pBruto",
+            ],
+            ns,
+        )
+    )
+
+    return {
+        "Nº": numero,
+        "NOME / RAZÃO SOCIAL": nome,
+        "ENDEREÇO": endereco,
+        "BAIRRO / DISTRITO": bairro,
+        "MUNICÍPIO": municipio,
+        "CEP": cep,
+        "V. TOTAL DA NOTA": v_nf,
+        "QUANTIDADE": quantidade,
+        "PESO BRUTO": peso_bruto,
+        "TELEFONE / FAX": fone,
+    }
+
+
+def salvar_excel_bytes_norsa(df: pd.DataFrame) -> bytes:
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="NFes")
+    output.seek(0)
+    return output.read()
+
+
+# =========================================================
+# =====================  UI PRINCIPAL  ====================
+# =========================================================
 st.write("")
-
-left, right = st.columns([1.2, 1])
-with left:
-    st.markdown("#### 1) Envie o arquivo `.txt`")
-    uploaded = st.file_uploader("Selecione o `texto_extraido.txt`", type=["txt"])
-with right:
-    st.empty()
+cliente = st.selectbox("👤 Selecione o cliente", CLIENTES, index=0)
 
 st.write("")
+st.divider()
 
-if uploaded is not None:
+if cliente.startswith("PLUMA"):
+    st.subheader("📌 PLUMA ESPUMAS LTDA — Upload TXT")
+    st.caption("Envie o `texto_extraido.txt`. Eu extraio os campos, classifico zona (IBGE) e calculo frete + mapa.")
+
+    uploaded = st.file_uploader("Selecione o arquivo TXT", type=["txt"], accept_multiple_files=False)
+
+    if uploaded is None:
+        st.info("Faça o upload do TXT para iniciar a extração.")
+        st.stop()
+
     texto = uploaded.read().decode("utf-8", errors="ignore")
 
-    # 1) Extrai registros
     with st.spinner("Extraindo dados do TXT..."):
         registros = extrair_notas_de_texto(texto)
 
@@ -589,14 +680,11 @@ if uploaded is not None:
         st.warning("Não encontrei notas no TXT. Verifique o layout.")
         st.stop()
 
-    # 2) Detecta origem com base nos municípios extraídos
     origem = detectar_origem_por_municipios(registros)
     st.caption(f"🏁 Origem detectada automaticamente: **{origem}**")
 
-    # 3) Monta Excel com classificação e valor de frete
-    excel_bytes, df = salvar_excel_bytes(registros, origem)
+    excel_bytes, df = salvar_excel_bytes_pluma(registros, origem)
 
-    # KPIs
     capital_count  = (df["ZONA"] == "Capital").sum()
     metro_count    = (df["ZONA"] == "Metropolitana").sum()
     interior_count = (df["ZONA"] == "Interior").sum()
@@ -620,18 +708,16 @@ if uploaded is not None:
 
     st.write("")
     st.download_button(
-        label="⬇️ Baixar Excel extraído",
+        label="⬇️ Baixar Excel extraído (PLUMA)",
         data=excel_bytes,
-        file_name="notas_extraidas.xlsx",
+        file_name="pluma_notas_extraidas.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
     with st.expander("Pré-visualização (primeiras linhas)"):
-        st.dataframe(df.head(20), use_container_width=True)
+        st.dataframe(df.head(30), use_container_width=True)
 
-    # ----- MAPA -----
-    st.markdown("#### 2) Mapa ilustrativo dos destinos")
-
+    st.markdown("#### 🗺️ Mapa ilustrativo dos destinos (PLUMA)")
     cache_col1, _ = st.columns([1, 3])
     with cache_col1:
         if st.button("🧹 Limpar cache de coordenadas"):
@@ -661,8 +747,7 @@ if uploaded is not None:
     origem_norm = strip_accents_upper(origem)
     uf_origem = "AL" if "MACEIO" in origem_norm else "PE"
 
-    pontos = []
-    nao_plotados = []
+    pontos, nao_plotados = [], []
     for mun in municipios:
         z, _ = classificar_zona_ibge(mun, origem)
         latlon = geocode_city(mun, uf_origem)
@@ -677,6 +762,55 @@ if uploaded is not None:
     build_map_folium(df_map, origem)
 
     if nao_plotados:
-        st.caption("⚠️ Municípios não plotados (sem coordenadas/OSM): " + ", ".join(sorted(set(nao_plotados))))
+        st.caption("⚠️ Municípios não plotados (sem coordenadas): " + ", ".join(sorted(set(nao_plotados))))
+
 else:
-    st.info("Faça o upload do arquivo TXT para iniciar a extração.")
+    st.subheader("📌 NORSA REFRIGERANTES S.A — Upload XML")
+    st.caption("Envie um ou vários XMLs de NF-e. Eu extraio os campos e gero uma planilha única.")
+
+    files = st.file_uploader("Arraste aqui seus XMLs (pode mandar vários)", type=["xml"], accept_multiple_files=True)
+
+    if not files:
+        st.info("Envie os XMLs acima para começar.")
+        st.stop()
+
+    rows, erros = [], []
+    for f in files:
+        try:
+            row = parse_nfe_xml(f.getvalue())
+            row["_arquivo"] = f.name
+            rows.append(row)
+        except Exception as e:
+            erros.append({"arquivo": f.name, "erro": str(e)})
+
+    if erros:
+        st.warning("Alguns arquivos não puderam ser processados.")
+        st.dataframe(pd.DataFrame(erros), use_container_width=True)
+
+    if rows:
+        df = pd.DataFrame(rows)
+        cols = [
+            "Nº",
+            "NOME / RAZÃO SOCIAL",
+            "ENDEREÇO",
+            "BAIRRO / DISTRITO",
+            "MUNICÍPIO",
+            "CEP",
+            "V. TOTAL DA NOTA",
+            "QUANTIDADE",
+            "PESO BRUTO",
+            "TELEFONE / FAX",
+            "_arquivo",
+        ]
+        df = df[[c for c in cols if c in df.columns]]
+
+        st.subheader("✅ Resultado (NORSA)")
+        st.dataframe(df, use_container_width=True)
+
+        excel_bytes = salvar_excel_bytes_norsa(df)
+        st.download_button(
+            "⬇️ Baixar Excel (.xlsx) (NORSA)",
+            data=excel_bytes,
+            file_name="norsa_extracao_nfe.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
