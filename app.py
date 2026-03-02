@@ -545,7 +545,7 @@ def build_map_folium(df_destinos: pd.DataFrame, origem: str):
       <div><span style="background:red; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Capital</div>
       <div><span style="background:blue; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Metropolitana</div>
       <div><span style="background:gray; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Interior</div>
-      <div style="margin-top:6px; font-size:12px;">Número na bolha = quantidade de entregas</div>
+      
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
