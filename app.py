@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import io
@@ -499,22 +498,39 @@ def build_map_folium(df_destinos: pd.DataFrame, origem: str):
     for _, row in df_destinos.iterrows():
         lat = row["lat"]
         lon = row["lon"]
+        qtd = int(row.get("QTD_ENTREGAS", 1))
+
         lats.append(lat)
         lons.append(lon)
 
-        folium.CircleMarker(
+        cor = _color_for(row["ZONA"])
+
+        html_marker = f"""
+        <div style="
+            background:{cor};
+            color:white;
+            border:2px solid white;
+            border-radius:50%;
+            width:30px;
+            height:30px;
+            line-height:26px;
+            text-align:center;
+            font-size:12px;
+            font-weight:700;
+            box-shadow:0 0 4px rgba(0,0,0,0.35);
+        ">
+            {qtd}
+        </div>
+        """
+
+        folium.Marker(
             location=[lat, lon],
-            radius=7,
-            weight=2,
-            color=_color_for(row["ZONA"]),
-            fill=True,
-            fill_color=_color_for(row["ZONA"]),
-            fill_opacity=0.9,
+            icon=folium.DivIcon(html=html_marker),
             popup=folium.Popup(
-                html=f"<b>{row['municipio']}</b><br/>Zona: {row['ZONA']}",
+                html=f"<b>{row['municipio']}</b><br/>Zona: {row['ZONA']}<br/>Entregas: {qtd}",
                 max_width=260
             ),
-            tooltip=f"{row['municipio']} • {row['ZONA']}",
+            tooltip=f"{row['municipio']} • {row['ZONA']} • {qtd} entrega(s)",
         ).add_to(m)
 
     if lats and lons:
@@ -529,6 +545,7 @@ def build_map_folium(df_destinos: pd.DataFrame, origem: str):
       <div><span style="background:red; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Capital</div>
       <div><span style="background:blue; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Metropolitana</div>
       <div><span style="background:gray; width:12px; height:12px; display:inline-block; border-radius:50%; margin-right:6px;"></span>Interior</div>
+      <div style="margin-top:6px; font-size:12px;">Número na bolha = quantidade de entregas</div>
     </div>
     """
     m.get_root().html.add_child(folium.Element(legend_html))
@@ -731,7 +748,7 @@ if cliente.startswith("PLUMA"):
     if "geocache" not in st.session_state:
         st.session_state["geocache"] = load_geocache()
 
-    municipios = (
+    municipios_series = (
         df["MUNICÍPIO"]
         .dropna()
         .astype(str)
@@ -739,9 +756,10 @@ if cliente.startswith("PLUMA"):
         .str.strip()
         .replace("", pd.NA)
         .dropna()
-        .unique()
-        .tolist()
     )
+
+    contagem_municipios = municipios_series.value_counts().to_dict()
+    municipios = list(contagem_municipios.keys())
 
     origem_norm = strip_accents_upper(origem)
     uf_origem = "AL" if "MACEIO" in origem_norm else "PE"
@@ -752,7 +770,13 @@ if cliente.startswith("PLUMA"):
         latlon = geocode_city(mun, uf_origem)
         if latlon:
             lat, lon = latlon
-            pontos.append({"municipio": f"{mun}, {uf_origem}", "lat": lat, "lon": lon, "ZONA": z})
+            pontos.append({
+                "municipio": f"{mun}, {uf_origem}",
+                "lat": lat,
+                "lon": lon,
+                "ZONA": z,
+                "QTD_ENTREGAS": int(contagem_municipios.get(mun, 1))
+            })
         else:
             nao_plotados.append(mun)
 
