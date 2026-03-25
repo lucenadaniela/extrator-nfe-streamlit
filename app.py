@@ -63,11 +63,124 @@ RMR_IBGE_PE = {
     "CABO DE SANTO AGOSTINHO", "IPOJUCA", "CAMARAGIBE",
     "SAO LOURENCO DA MATA", "ABREU E LIMA", "IGARASSU",
     "ITAPISSUMA", "ARACOIABA", "MORENO", "ILHA DE ITAMARACA",
+    "FERNANDO DE NORONHA",
 }
 
 VALOR_FRETE_RECIFE_CAPITAL  = 130.00
 VALOR_FRETE_RECIFE_METRO    = 130.00
 VALOR_FRETE_RECIFE_INTERIOR = 249.00
+
+# Interior PE por região (baseado na lista de municípios por RD)
+VALOR_FRETE_PE_MATA_NORTE = 249.00
+VALOR_FRETE_PE_MATA_SUL = 249.00
+VALOR_FRETE_PE_AGRESTE_CENTRAL = 249.00
+VALOR_FRETE_PE_AGRESTE_MERIDIONAL = 249.00
+VALOR_FRETE_PE_AGRESTE_SETENTRIONAL = 249.00
+VALOR_FRETE_PE_SERTAO_MOXOTO = 360.00
+VALOR_FRETE_PE_SERTAO_PAJEU = 380.00
+VALOR_FRETE_PE_SERTAO_ITAPARICA = 400.00
+VALOR_FRETE_PE_SERTAO_CENTRAL = 440.00
+VALOR_FRETE_PE_SERTAO_ARARIPE = 470.00
+VALOR_FRETE_PE_SERTAO_SAO_FRANCISCO = 490.00
+
+PE_REGIOES_FRETE = {
+    "MATA NORTE": VALOR_FRETE_PE_MATA_NORTE,
+    "MATA SUL": VALOR_FRETE_PE_MATA_SUL,
+    "AGRESTE CENTRAL": VALOR_FRETE_PE_AGRESTE_CENTRAL,
+    "AGRESTE MERIDIONAL": VALOR_FRETE_PE_AGRESTE_MERIDIONAL,
+    "AGRESTE SETENTRIONAL": VALOR_FRETE_PE_AGRESTE_SETENTRIONAL,
+    "SERTAO DO MOXOTO": VALOR_FRETE_PE_SERTAO_MOXOTO,
+    "SERTAO DO PAJEU": VALOR_FRETE_PE_SERTAO_PAJEU,
+    "SERTAO DE ITAPARICA": VALOR_FRETE_PE_SERTAO_ITAPARICA,
+    "SERTAO CENTRAL": VALOR_FRETE_PE_SERTAO_CENTRAL,
+    "SERTAO DO ARARIPE": VALOR_FRETE_PE_SERTAO_ARARIPE,
+    "SERTAO DO SAO FRANCISCO": VALOR_FRETE_PE_SERTAO_SAO_FRANCISCO,
+}
+
+PE_REGIOES_IBGE = {
+    "MATA NORTE": {
+        "ALIANCA", "BUENOS AIRES", "CAMUTANGA", "CARPINA", "CHA DE ALEGRIA",
+        "CONDADO", "FERREIROS", "GLORIA DO GOITA", "GOIANA", "ITAMBE",
+        "ITAQUITINGA", "LAGOA DO CARRO", "LAGOA DO ITAENGA", "MACAPARANA",
+        "NAZARE DA MATA", "PAUDALHO", "TIMBAUBA", "TRACUNHAEM", "VICENCIA",
+    },
+    "MATA SUL": {
+        "AGUA PRETA", "AMARAJI", "BARREIROS", "BELEM DE MARIA", "CATENDE",
+        "CHA GRANDE", "CORTES", "ESCADA", "GAMELEIRA", "JAQUEIRA",
+        "JOAQUIM NABUCO", "MARAIAL", "PALMARES", "POMBOS", "PRIMAVERA",
+        "QUIPAPA", "RIBEIRAO", "RIO FORMOSO", "SAO BENEDITO DO SUL",
+        "SAO JOSE DA COROA GRANDE", "SIRINHAEM", "TAMANDARE",
+        "VITORIA DE SANTO ANTAO", "XEXEU",
+    },
+    "AGRESTE CENTRAL": {
+        "AGRESTINA", "ALAGOINHA", "ALTINHO", "BARRA DE GUABIRABA",
+        "BELO JARDIM", "BEZERROS", "BONITO", "BREJO DA MADRE DE DEUS",
+        "CACHOEIRINHA", "CAMOCIM DE SAO FELIX", "CARUARU", "CUPIRA",
+        "GRAVATA", "IBIRAJUBA", "JATAUBA", "LAGOA DOS GATOS", "PANELAS",
+        "PESQUEIRA", "POCAO", "RIACHO DAS ALMAS", "SAIRE", "SANHARO",
+        "SAO BENTO DO UNA", "SAO CAETANO", "SAO JOAQUIM DO MONTE", "TACAIMBO",
+    },
+    "AGRESTE MERIDIONAL": {
+        "AGUAS BELAS", "ANGELIM", "BOM CONSELHO", "BREJAO", "BUIQUE",
+        "CAETES", "CALCADO", "CANHOTINHO", "CAPOEIRAS", "CORRENTES",
+        "GARANHUNS", "IATI", "ITAIBA", "JUCATI", "JUPI", "JUREMA",
+        "LAGOA DO OURO", "LAJEDO", "PALMEIRINA", "PARANATAMA", "PEDRA",
+        "SALOA", "SAO JOAO", "TEREZINHA", "TUPANATINGA", "VENTUROSA",
+    },
+    "AGRESTE SETENTRIONAL": {
+        "BOM JARDIM", "CASINHAS", "CUMARU", "FEIRA NOVA", "FREI MIGUELINHO",
+        "JOAO ALFREDO", "LIMOEIRO", "MACHADOS", "OROBO", "PASSIRA",
+        "SALGADINHO", "SANTA CRUZ DO CAPIBARIBE", "SANTA MARIA DO CAMBUCA",
+        "SAO VICENTE FERRER", "SURUBIM", "TAQUARITINGA DO NORTE", "TORITAMA",
+        "VERTENTE DO LERIO", "VERTENTES",
+    },
+    "SERTAO DO ARARIPE": {
+        "ARARIPINA", "BODOCO", "EXU", "GRANITO", "IPUBI", "MOREILANDIA",
+        "OURICURI", "SANTA CRUZ", "SANTA FILOMENA", "TRINDADE",
+    },
+    "SERTAO CENTRAL": {
+        "CEDRO", "MIRANDIBA", "PARNAMIRIM", "SALGUEIRO",
+        "SAO JOSE DO BELMONTE", "SERRITA", "TERRA NOVA", "VERDEJANTE",
+    },
+    "SERTAO DE ITAPARICA": {
+        "BELEM DE SAO FRANCISCO", "CARNAUBEIRA DA PENHA", "FLORESTA",
+        "ITACURUBA", "JATOBA", "PETROLANDIA", "TACARATU",
+    },
+    "SERTAO DO MOXOTO": {
+        "ARCOVERDE", "BETANIA", "CUSTODIA", "IBIMIRIM", "INAJA", "MANARI", "SERTANIA",
+    },
+    "SERTAO DO PAJEU": {
+        "AFOGADOS DA INGAZEIRA", "BREJINHO", "CALUMBI", "CARNAIBA", "FLORES",
+        "IGUARACI", "INGAZEIRA", "ITAPETIM", "QUIXABA", "SANTA CRUZ DA BAIXA VERDE",
+        "SANTA TEREZINHA", "SAO JOSE DO EGITO", "SERRA TALHADA", "SOLIDAO",
+        "TABIRA", "TRIUNFO", "TUPARETAMA",
+    },
+    "SERTAO DO SAO FRANCISCO": {
+        "AFRANIO", "CABROBO", "DORMENTES", "LAGOA GRANDE", "OROCO",
+        "PETROLINA", "SANTA MARIA DA BOA VISTA",
+    },
+}
+
+PE_MUNICIPIO_ALIASES = {
+    "CABO DO STO. AGOSTINHO": "CABO DE SANTO AGOSTINHO",
+    "CABO DO STO AGOSTINHO": "CABO DE SANTO AGOSTINHO",
+    "CABO DE STO AGOSTINHO": "CABO DE SANTO AGOSTINHO",
+    "JABOATAO DOSGUARARAPES": "JABOATAO DOS GUARARAPES",
+    "ILHA DE ITAMARACA": "ILHA DE ITAMARACA",
+    "ITAMARACA": "ILHA DE ITAMARACA",
+    "BELEM DE S. FRANCISCO": "BELEM DE SAO FRANCISCO",
+    "BELEM DE S FRANCISCO": "BELEM DE SAO FRANCISCO",
+    "CARNAUBEIRA DA PENHA": "CARNAUBEIRA DA PENHA",
+    "CAMAUBEIRA DA PENHA": "CARNAUBEIRA DA PENHA",
+    "STA. CRUZ DA BAIXA VERDE": "SANTA CRUZ DA BAIXA VERDE",
+    "STA CRUZ DA BAIXA VERDE": "SANTA CRUZ DA BAIXA VERDE",
+    "STA. MARIA DO CAMBUCA": "SANTA MARIA DO CAMBUCA",
+    "STA MARIA DO CAMBUCA": "SANTA MARIA DO CAMBUCA",
+    "STA. CRUZ DO CAPIBARIBE": "SANTA CRUZ DO CAPIBARIBE",
+    "STA CRUZ DO CAPIBARIBE": "SANTA CRUZ DO CAPIBARIBE",
+    "TUPARATEMA": "TUPARETAMA",
+    "PARNAMIRIM": "PARNAMIRIM",
+}
 
 CAPITAL_IBGE_AL = {"MACEIO"}
 RMM_MACEIO_IBGE = {
@@ -80,6 +193,18 @@ VALOR_FRETE_MACEIO_CAPITAL  = 100.00
 VALOR_FRETE_MACEIO_METRO    = 200.00
 VALOR_FRETE_MACEIO_INTERIOR = 200.00
 
+
+def normalizar_municipio_pe(municipio: str) -> str:
+    key = strip_accents_upper(sanitize_municipio_name(municipio))
+    return PE_MUNICIPIO_ALIASES.get(key, key)
+
+
+def obter_regiao_pe(municipio: str) -> Optional[str]:
+    key = normalizar_municipio_pe(municipio)
+    for regiao, municipios in PE_REGIOES_IBGE.items():
+        if key in municipios:
+            return regiao
+    return None
 NUM_BR = r'(\d{1,3}(?:\.\d{3})*(?:,\d+)?|\d+(?:,\d+)?)'
 TEL_PAT = re.compile(r'(\(?\d{2}\)?\s*\d{4,5}[-\s]?\d{4}|\b\d{10,11}\b)')
 RE_CEP_EXATO = re.compile(r'\b\d{5}-\d{3}\b')
@@ -127,7 +252,7 @@ def detectar_origem_por_municipios(registros) -> str:
 
 
 def classificar_zona_ibge(municipio: str, origem: str):
-    key = strip_accents_upper(municipio)
+    key = normalizar_municipio_pe(municipio)
     origem_norm = strip_accents_upper(origem)
 
     if "RECIFE" in origem_norm:
@@ -135,6 +260,11 @@ def classificar_zona_ibge(municipio: str, origem: str):
             return "Capital", VALOR_FRETE_RECIFE_CAPITAL
         if key in RMR_IBGE_PE:
             return "Metropolitana", VALOR_FRETE_RECIFE_METRO
+
+        regiao_pe = obter_regiao_pe(key)
+        if regiao_pe:
+            return regiao_pe, PE_REGIOES_FRETE[regiao_pe]
+
         return "Interior", VALOR_FRETE_RECIFE_INTERIOR
 
     if "MACEIO" in origem_norm:
@@ -153,8 +283,12 @@ def classificar_zona_ibge(municipio: str, origem: str):
         return "Capital", VALOR_FRETE_RECIFE_CAPITAL
     if key in RMR_IBGE_PE:
         return "Metropolitana", VALOR_FRETE_RECIFE_METRO
-    return "Interior", VALOR_FRETE_RECIFE_INTERIOR
 
+    regiao_pe = obter_regiao_pe(key)
+    if regiao_pe:
+        return regiao_pe, PE_REGIOES_FRETE[regiao_pe]
+
+    return "Interior", VALOR_FRETE_RECIFE_INTERIOR
 
 def prox_nao_vazia(linhas, j, max_look=15):
     n = len(linhas)
@@ -701,9 +835,9 @@ if cliente.startswith("PLUMA"):
 
     excel_bytes, df = salvar_excel_bytes_pluma(registros, origem)
 
-    capital_count  = (df["ZONA"] == "Capital").sum()
-    metro_count    = (df["ZONA"] == "Metropolitana").sum()
-    interior_count = (df["ZONA"] == "Interior").sum()
+    capital_count = int((df["ZONA"] == "Capital").sum())
+    metro_count = int((df["ZONA"] == "Metropolitana").sum())
+    interior_count = int((~df["ZONA"].isin(["Capital", "Metropolitana"])).sum())
 
     col1, col2, col3 = st.columns(3)
     col1.markdown(
