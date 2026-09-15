@@ -43,6 +43,7 @@ st.markdown("""
 CLIENTES = [
     "PLUMA ESPUMAS LTDA (TXT)",
     "NORSA REFRIGERANTES S.A (XML)",
+    "CONNECTOWAY SOLUÇÕES INTELIGENTES EM TECNOLOGIA S.A (XML)",
 ]
 
 st.title("📄 Extrator NF-e → Excel (por cliente)")
@@ -724,6 +725,13 @@ def _to_float(s: Optional[str]) -> Optional[float]:
         return None
 
 
+def _format_cep(cep: Optional[str]) -> Optional[str]:
+    digits = re.sub(r"\D", "", cep or "")
+    if len(digits) == 8:
+        return f"{digits[:5]}-{digits[5:]}"
+    return cep.strip() if cep else None
+
+
 def parse_nfe_xml(xml_bytes: bytes) -> Dict[str, Any]:
     root = ET.fromstring(xml_bytes)
     ns = _detect_ns(root)
@@ -746,18 +754,30 @@ def parse_nfe_xml(xml_bytes: bytes) -> Dict[str, Any]:
 
     bairro = _find_text(inf, "./nfe:dest/nfe:enderDest/nfe:xBairro", ns)
     municipio = _find_text(inf, "./nfe:dest/nfe:enderDest/nfe:xMun", ns)
-    cep = _find_text(inf, "./nfe:dest/nfe:enderDest/nfe:CEP", ns)
+    cep = _format_cep(_find_text(inf, "./nfe:dest/nfe:enderDest/nfe:CEP", ns))
 
-    fone = _find_first_text(
-        inf,
-        [
-            "./nfe:dest/nfe:enderDest/nfe:fone",
-            "./nfe:emit/nfe:enderEmit/nfe:fone",
-        ],
-        ns,
+    fone = normalize_phone(
+        _find_first_text(
+            inf,
+            [
+                "./nfe:dest/nfe:enderDest/nfe:fone",
+                "./nfe:emit/nfe:enderEmit/nfe:fone",
+                "./nfe:infRespTec/nfe:fone",
+            ],
+            ns,
+        )
     )
 
-    v_nf = _to_float(_find_text(inf, "./nfe:total/nfe:ICMSTot/nfe:vNF", ns))
+    v_nf = _to_float(
+        _find_first_text(
+            inf,
+            [
+                "./nfe:total/nfe:ICMSTot/nfe:vNF",
+                "./nfe:total/nfe:vNFTot",
+            ],
+            ns,
+        )
+    )
     q_vol = _to_float(_find_text(inf, "./nfe:transp/nfe:vol/nfe:qVol", ns))
 
     dets = inf.findall("./nfe:det", ns) if ns.get("nfe") else inf.findall("./det")
@@ -800,6 +820,16 @@ def salvar_excel_bytes_norsa(df: pd.DataFrame) -> bytes:
         df.to_excel(writer, index=False, sheet_name="NFes")
     output.seek(0)
     return output.read()
+
+
+def nome_cliente_limpo(cliente: str) -> str:
+    return cliente.split("(")[0].strip()
+
+
+def slug_cliente(cliente: str) -> str:
+    slug = strip_accents_upper(nome_cliente_limpo(cliente)).lower()
+    slug = re.sub(r"[^a-z0-9]+", "_", slug).strip("_")
+    return slug or "cliente"
 
 
 # =========================================================
@@ -922,7 +952,14 @@ if cliente.startswith("PLUMA"):
         st.caption("⚠️ Municípios não plotados (sem coordenadas): " + ", ".join(sorted(set(nao_plotados))))
 
 else:
-    st.subheader("📌 NORSA REFRIGERANTES S.A — Upload XML")
+    cliente_nome = nome_cliente_limpo(cliente)
+    cliente_slug = slug_cliente(cliente)
+    is_norsa = cliente.startswith("NORSA")
+
+    if is_norsa:
+        st.subheader("📌 NORSA REFRIGERANTES S.A — Upload XML")
+    else:
+        st.subheader(f"📌 {cliente_nome} — Upload XML")
     st.caption("Envie um ou vários XMLs de NF-e. Eu extraio os campos e gero uma planilha única.")
 
     files = st.file_uploader("Arraste aqui seus XMLs (pode mandar vários)", type=["xml"], accept_multiple_files=True)
@@ -935,7 +972,6 @@ else:
     for f in files:
         try:
             row = parse_nfe_xml(f.getvalue())
-            row["_arquivo"] = f.name
             rows.append(row)
         except Exception as e:
             erros.append({"arquivo": f.name, "erro": str(e)})
@@ -957,17 +993,21 @@ else:
             "QUANTIDADE",
             "PESO BRUTO",
             "TELEFONE / FAX",
-            "_arquivo",
         ]
         df = df[[c for c in cols if c in df.columns]]
 
-        st.subheader("✅ Resultado (NORSA)")
+        if is_norsa:
+            st.subheader("✅ Resultado (NORSA)")
+        else:
+            st.subheader(f"✅ Resultado ({cliente_nome})")
         st.dataframe(df, use_container_width=True)
 
         excel_bytes = salvar_excel_bytes_norsa(df)
+        download_label = "⬇️ Baixar Excel (.xlsx) (NORSA)" if is_norsa else f"⬇️ Baixar Excel (.xlsx) ({cliente_nome})"
+        download_file = "norsa_extracao_nfe.xlsx" if is_norsa else f"{cliente_slug}_extracao_nfe.xlsx"
         st.download_button(
-            "⬇️ Baixar Excel (.xlsx) (NORSA)",
+            download_label,
             data=excel_bytes,
-            file_name="norsa_extracao_nfe.xlsx",
+            file_name=download_file,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
